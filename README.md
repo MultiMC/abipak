@@ -134,6 +134,33 @@ Each step is a tool of its own, runnable and inspectable by itself:
    SHA-256, mirrors) and put it in place, in the user's directories.
 6. **run:** start it.
 
+### How it feels to use
+
+Like an AppImage, though built differently:
+
+- **One file.** Download it, make it executable, run it. No installer, no root.
+- **The first run does the work:** probe, fetch, deploy, run. Later runs start the app
+  straight away, offline too.
+- **Portable or installed, by the file's name.** If the name it was started as (`argv[0]`,
+  so a symlink works too) contains the word "portable" (case doesn't matter, as a whole
+  word: `MyApp-portable`, `MyApp-Portable (1)`, not `notportable`), the app and its data live
+  next to it; otherwise in the user's XDG directories. Renaming the file is how a user
+  switches, from any file manager; a double-click can't pass flags. An app already deployed
+  next to the file wins over the name, so renaming never makes a user's data seem gone.
+- **Desktop integration on request:** the first run offers a menu entry and icon pointing
+  at the file, and every run updates the entry, so moving the file doesn't leave a broken
+  one behind.
+- **Its own options under a prefix,** like AppImage's `--appimage-*`: `--abipak-check` only
+  probes and reports, `--abipak-info` says what it is, where the app and its data are and
+  why (which mode, and what decided it). Every other argument goes to the app.
+- **Explaining without a toolkit.** The runtime is static and can't load a GUI toolkit: it
+  prints in a terminal, otherwise uses `zenity` or `kdialog` where present, and a desktop
+  notification as the last resort.
+
+Inside, the file is the generic runtime with a small app descriptor appended: the app's
+name and icon, where its signed tree is, the pinned root keys. Not the app itself: that is
+fetched and updates itself. The same runtime serves any app; only the descriptor changes.
+
 ### Distributions already speak ABI
 
 The resolver translates "this soname with this version node" into each package manager's
