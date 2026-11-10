@@ -5,8 +5,9 @@ portable apps, has optional sandboxing, and relies on the host's ABI instead of 
 runtime: an app states the ABI it needs, and the system is probed for it and, where
 something is missing, given it from the distribution's own packages.
 
-Status: an idea (2026-11-01, direction updated 2026-11-09). Nothing is built yet; this
-document collects what the format should be and the problems it has to solve. The first
+Status: an idea (2026-11-01, direction updated 2026-11-09), with a first prototype of
+measure and probe (2026-11-10, see "The prototype"). This document collects what the
+format should be and the problems it has to solve. The first
 parts are to be built as a small tool for one real app, the MultiMC Launcher (see "First
 steps").
 
@@ -219,6 +220,70 @@ This follows the design of the MultiMC updater overhaul
 - **Flatpak portals:** what an optional sandbox needs to stay usable (file choosers,
   opening links).
 - **systemd portable services:** an image plus optional confinement, for services.
+
+## The prototype
+
+`measure` and `probe` exist (2026-11-10), in Zig (`src/`, `zig build` with Zig 0.17; the
+release build is a 250 KB static binary):
+
+    zig-out/bin/abipak measure <directory>                 requirements, as JSON
+    zig-out/bin/abipak probe [--root DIR] <requirements>   met or not, and what's missing
+
+`measure` reads every ELF file in the app's directory through its program headers, as the
+loader does: the architecture, the interpreter, the libraries linked (`DT_NEEDED`) and the
+symbol version nodes needed from each (`DT_VERNEED`). Libraries the app brings itself (a
+file or link of that name in the directory, or a `DT_SONAME`) aren't requirements. Weak
+version references aren't either, and a private API (`Qt_5_PRIVATE_API`) is a warning:
+it needs exactly the version the app was built with, which version nodes can't say.
+
+`probe` finds each library as the loader would (its cache `/etc/ld.so.cache`, then the
+usual directories, the first file of that name with the app's architecture), reads the
+version nodes it defines (`DT_VERDEF`) and checks every one the app needs. Nothing is
+loaded or run. Not followed yet: `DT_RUNPATH`, `LD_LIBRARY_PATH`, and what the libraries
+found need themselves.
+
+### The requirement format
+
+    {
+      "format": 1,
+      "arch": "x86_64",
+      "interpreter": "/lib64/ld-linux-x86-64.so.2",
+      "libs": [
+        {"soname": "libQt5Core.so.5", "versions": ["Qt_5", "Qt_5.6"]},
+        {"soname": "libc.so.6", "versions": ["GLIBC_2.2.5", "GLIBC_2.3", "GLIBC_2.3.4", "GLIBC_2.4", "GLIBC_2.14"]},
+        {"soname": "libz.so.1", "versions": []}
+      ]
+    }
+
+- **Every version node needed, not only the highest.** That's exactly what the loader
+  checks, so checking needs no knowledge of how a library numbers its versions (libstdc++
+  has two families, `GLIBCXX_` and `CXXABI_`; Qt's minor-version nodes are empty markers).
+  The highest of each family is worked out only for messages ("lacks Qt_6.8").
+- **A library without symbol versions** has an empty list: finding it is all that can be
+  checked.
+- **The architecture and the interpreter** are part of it: a 32-bit app on a system
+  without 32-bit libraries is missing its interpreter first of all.
+- **Strict:** a field the reader doesn't know is a requirement it can't check, so it
+  refuses the file.
+
+### Tried on
+
+The MultiMC Launcher's Linux packages (build 5055) and a Qt 6.8 requirement, with the same
+binary in each system:
+
+| System | lin64 (Qt 5.6) | lin32 | Qt 6.8 |
+|---|---|---|---|
+| CachyOS (Qt 5.15, Qt 6.12) | met | the 32-bit Qt 5 missing | met |
+| Debian 12 | met | nothing 32-bit | Qt 6.4 lacks `Qt_6.8` |
+| Ubuntu 22.04 | met | nothing 32-bit | Qt 6.2 lacks `Qt_6.8` |
+| Fedora 41 | met | nothing 32-bit | met |
+
+Measured: 12 libraries for lin64, and the same glibc 2.14, GLIBCXX 3.4.21 and Qt 5.6
+floors that MultiMC's build pipeline reports, per library and exact.
+
+Not covered yet: libraries loaded at run time rather than linked, such as Qt's platform
+plugin (`libqxcb.so`) and what it needs (`libxcb-*`, `libxkbcommon`). For an app on the
+system's Qt those come with the distribution's Qt packages, but nothing checks them.
 
 ## First steps
 
